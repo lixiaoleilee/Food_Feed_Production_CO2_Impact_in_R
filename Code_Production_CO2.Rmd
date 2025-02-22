@@ -40,12 +40,6 @@ library(scales)
 library(plotly)
 
 
-library(broom)
-library(ggthemes)
-library(RColorBrewer)
-library(ggpubr)
-library(ggmosaic)
-
 ```
 
 # Introduction
