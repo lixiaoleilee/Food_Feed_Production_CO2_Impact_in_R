@@ -1,0 +1,339 @@
+---
+title: "Visualizing Global Food and Feed Production and Their CO₂ Emissions Impact"
+author: "Xiaolei Li"
+date: "Fall 2023"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+    toc_depth: 3
+    code_folding: "hide"
+    toc_float: yes
+    number_sections: no
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = FALSE, message = FALSE)
+```
+
+```{r include=FALSE}
+# install.packages("kableExtra")
+```
+
+```{r include=FALSE}
+# library(kableExtra)
+```
+
+
+```{r, echo=FALSE}
+#install.packages("tidyverse")
+library(readr)
+library(readxl)
+library(tidyverse)
+library(scales)
+library(plotly)
+
+
+library(broom)
+library(ggthemes)
+library(RColorBrewer)
+library(ggpubr)
+library(ggmosaic)
+
+```
+
+# Introduction
+This study examines global trends in food and feed production over the years across different countries and assesses the environmental impact of the production, particularly its association with CO2 emissions at various stages. By presenting these findings, we aim to provide insights that can help implement effective control measures to reduce CO2 emissions and improve production efficiency.
+
+These are the key questions to be addressed using the datasets from Kaggle.
+
+1. What are the changes in food and feed production over the years?
+2. What is the level of food/feed production in various countries/continents in recent years?
+3. Which types of food and which stage of food production contributes more CO2 emission?
+4. What are the global CO2 emissions at the country level?
+
+
+```{r,echo=FALSE}
+setwd("/Users/lixiaolei/Desktop/Projects_Summary/R_Food")
+```
+
+# Data Description and Preparation
+
+## Food Balance Sheet
+
+The Food Balance Sheet contains 21,477 records of 117 different food and feed items produced in 174 countries from 1961 to 2013. The data has 63 covariates which comprise the area (country) of production, the food or feed items, the latitudes and longitudes of the region of production, and the yearly records of the tonnes of quantities of food and feed produced.   
+
+```{r,echo=FALSE}
+food_feed <- read.csv("FAO.csv")
+#dim(food_feed) # 21,477 63
+#length(unique(food_feed$Item.Code)) # 117
+#length(unique(food_feed$Area.Code)) # 174
+
+
+
+# convert wide format data to long format
+food_feed_1 <- food_feed %>% pivot_longer(cols = 11:ncol(food_feed), 
+                                        names_to = "Year", values_to = "Record") %>% select(-c("Area.Code", "Item.Code", "Element.Code", "Unit")) %>% mutate(Year = as.numeric(sub("Y", "", Year)))
+
+
+```
+
+
+## World Population Data
+This data contains records of 267 countries' populations from 10000 BCE to 2021. Since the Food Balance data covers the period from 1961 to 2013, the corresponding population data for each country was selected.
+
+```{r, echo=FALSE}
+pop <- read.csv("population.csv")
+#length(unique(pop$Entity)) # 267
+pop_1 <- pop %>% filter(Year >= 1961 & Year <= 2013)
+names(pop_1)[4] <- "Population"
+
+
+```
+
+## CO2 Emission from Food Production data
+
+This data contains records of greenhouse gas emissions of 43 of the most commonly grown food crops and animal products. The corresponding carbon dioxide emissions during different stages of production has been included.
+
+```{r, echo=FALSE}
+co_emission <- read.csv("Food_Production.csv")
+#length(unique(co_emission$Food.product)) # 43
+co_emission1 <- co_emission %>% select(c(1:9)) %>% 
+  mutate(Total_emissoins_1 = Total_emissions - `Land.use.change`)
+
+# obtain continents information from gapminder dataset
+continents <- gapminder::gapminder %>% select(country, continent)
+
+
+
+```
+
+## Global CO2 Emission Data
+This data contains carbon dioxide emissions for 213 countries. The years was selected from 1961 to 2013.
+
+```{r, echo=FALSE}
+global_co2 <- read_excel("EDGARv8.0_FT2022_GHG_booklet_2023_fossilCO2_only.xlsx", 
+                         sheet = "fossil_CO2_totals_by_country")
+#length(unique(global_co2$Country)) # 213
+
+global_co2_1 <- global_co2 %>% pivot_longer(cols = 4:ncol(global_co2), 
+                                names_to = "Year", values_to = "CO2_Emission")
+
+```
+
+# Findings and Discussions
+
+## Evolution of Food and Feed Production
+
+The trends in global food and feed production from 1961 to 2013 show an increasing pattern for both food and feed. Additionally, more food is produced than animal feed each year.
+
+```{r, echo=FALSE}
+food_feed_aggregate <- food_feed_1 %>% group_by(Element, Year) %>% 
+  summarise(total_production = sum(Record, na.rm = T)) %>%
+  mutate(Year = as.numeric(sub("Y", "", Year)), total_production = as.numeric(total_production))
+
+ggplot(food_feed_aggregate, aes(x = Year, y = total_production, color = Element)) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1963, 2015, 8)) +
+  scale_y_continuous(breaks = seq(0, 9752737, 1000000),
+  labels = label_number(scale = 1e-6)) +
+  labs(y = "Total Food/Feed Production in million tons",
+  title = "Total Food and Feed Production in the World") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, color = "black"),
+        legend.title = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        text = element_text(size = 12),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid.major.y = element_blank()
+  )
+  
+  
+```
+
+## Top Food Items Produced in 2013
+
+The top 10 food-producing records in 2013 are shown in the plot below. China, India, and the USA are the leading producers of the top seven food items. Additionally, China produced the highest quantity for six out of the seven items. Vegetables are the most widely produced food item.
+
+```{r, echo=FALSE}
+top_10 <- food_feed_1 %>% mutate(Year = as.numeric(sub("Y", "", Year))) %>% 
+  filter(Year == 2013, Element == "Food") %>% select(Area, Item, Record) %>% 
+  group_by(Item, Area) %>% summarise(Record = sum(Record)) %>% ungroup() %>% 
+  arrange(desc(Record)) %>% head(.,10)
+
+
+ggplot(top_10, aes(x = Item, y = Record, color = Area, size = 10^-6*Record)) +
+  geom_point() +
+  labs(y = "Total Food Production in million tons",
+       x = "Items",
+       title = "Top 10 Food Items Producted in 2013") +
+  scale_y_continuous(breaks = seq(95208, 589299, 100000), limits = c(95208, 589299),
+                     labels = label_number(scale = 1e-6))+
+  theme_bw() +
+  theme(plot.title  = element_text(hjust = 0.5, color = "black"),
+        legend.title  = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        text = element_text(size = 12),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        panel.grid.major.y = element_blank()
+  )
+
+```
+
+## Top Food Production-to-Population Ratios in 2013
+
+Since China, India, and the USA have the largest populations, it is also interesting to examine whether they remain leading producers when adjusted for population size. The analysis shows that Finland has the highest milk production per population, while Dominica, Ghana, and Armenia lead in fruit, starchy root, and vegetable production, respectively.
+
+```{r, echo=FALSE}
+food_pop <- left_join(food_feed_1, pop_1, by = c("Area" = "Entity", "Year" = "Year"))
+
+food_pop_1 <- food_pop %>% mutate(scaled_record = (Record/Population)*10000) %>%
+  filter(Year == 2013, Element == "Food") %>%
+  select(Area, Item, scaled_record) %>%
+  arrange(desc(scaled_record)) %>% distinct(Area, Item, scaled_record) %>% head(., 10)
+
+ggplot(food_pop_1, aes(x = Item, y = scaled_record, color = Area, size = scaled_record)) +
+  geom_point() +
+  labs(y = "Food Production per population ",
+       x = "Items",
+       title = "Top Food Production-to-Population Ratios in 2013") +
+  theme_bw() +
+  theme(plot.title  = element_text(hjust = 0.5, color = "black"),
+        legend.title  = element_blank(),
+        panel.grid.major.x = element_blank(),
+        text = element_text(size = 12),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        panel.grid.major.y = element_blank()
+  )
+```
+
+
+## Continental level production
+
+The food and feed production trends across different continents are presented below. Oceania exhibited minimal to no production in both categories. In contrast, Africa, America, and Asia showed a steady increase in food and feed production. Meanwhile, Europe experienced a rise in food production but a decline in feed production starting in 1985.
+
+```{r, echo=FALSE}
+food_pop_con <- left_join(food_pop, continents, by = c("Area" = "country"), relationship = "many-to-many")
+
+food_pop_con_1 <- food_pop_con %>% group_by(continent, Year, Element) %>%
+  summarise(total_production = sum(Record, na.rm = T)) %>% ungroup() %>%
+  drop_na()
+
+ggplot(food_pop_con_1, aes(x= Year, y= total_production, color= continent,
+                             linetype = Element))+
+  geom_line()+
+  scale_x_continuous(breaks = seq(1961, 2013, 8))+
+  scale_y_continuous(#breaks = seq(0, 9752737, 2000000), limits = c(0,9752737),
+    labels = label_number(scale = 1e-6))+
+  labs(y= "Total food/feed Production in million tons",
+       title = "Total Food and Feed production in Different Continents") +
+  theme_bw()+
+  theme(plot.title  = element_text(hjust=0.5, color = "black"),
+        legend.title  = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        text = element_text(size = 12),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x=element_text(angle = 30, hjust=1),
+        panel.grid.major.y = element_blank()
+  )
+```
+
+
+
+
+## Environmental Impact
+
+### Carbon dioxide emissions associated with food/feed production
+
+The CO2 emissions associated with the various food/feed production. It shows that animal products are the leading contributors to CO2 emissions while vegetables contribute less. 
+
+```{r, echo=FALSE}
+co2 <- co_emission %>% select(-Land.use.change)
+
+ggplot(co2, aes(x = reorder(Food.product, -Total_emissions), y = Total_emissions, fill = Total_emissions)) +
+  geom_bar(stat = "identity") +
+  labs(x= "Food/feed", y= "CO2 released per 1kg of food/feed produced",
+       title= "Amount of CO2 Released per 1kg of the Various Food/Feed Produced") + 
+  theme_classic()+
+  theme(#plot.title  = element_text(hjust=0.5, color = "blue"),
+    #plot.subtitle = element_text(hjust=0.5, colour = "steelblue"),
+    legend.title  = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    axis.text.x=element_text(angle=65, hjust=1),
+    
+  )
+
+```
+
+
+### Carbon dioxide emissions associated with the stages of food/feed production
+
+The figure below indicates that the animal feeding stage is the primary contributor to CO2 emissions. Additionally, since animal products are the leading source of CO2 emissions, this suggests that animal farming plays a significant role in overall emissions. In contrast, the transportation stage has the lowest contribution to CO2 emissions.
+
+```{r, echo=FALSE}
+co2_long <-co2 %>%  pivot_longer(cols = c(2:7), names_to = 
+                                         "stage", values_to = "emission" ) %>% arrange(desc(Total_emissions))
+
+ggplot(data = co2_long, aes(x=stage, y= log10(emission)))+
+  geom_boxplot(fill= "steelblue")+
+  coord_flip()+
+  labs(x= "Stages of Food/feed", y= "CO2 in log10",
+       title= "Amount of CO2 Released in the Various Stages of Food/Feed Production")+
+  theme_classic()+
+  theme(plot.caption = element_text(color = "steelblue"),
+    legend.title  = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    axis.text.x=element_text(angle=65, hjust=1)
+  )
+
+```
+
+
+### Global CO2 Emissions
+
+The figure below presents the CO2 emissions for each country, highlighting that China has the highest emissions. China's leading role in food and feed production may contribute to its position as the largest CO2 emitter.
+```{r, echo=FALSE}
+
+world_map <- plot_geo(global_co2_1, locations = ~Country, z = ~CO2_Emission, 
+                      locationmode = "country names", color = ~CO2_Emission) %>%
+  layout(title = "Country-Level CO2 Emissions Map",
+         xaxis = list(title = "Year"),
+         yaxis = list(title = "CO2 Emission"),
+         geo = list(
+           showframe = FALSE,
+           showcoastlines = TRUE
+         ),
+         
+    width = 700,  
+    height = 500
+         ) %>%
+  colorbar(title = "CO2 Emission")
+
+world_map
+
+```
+
+
+
+# Conclusion
+In conclusion, increasing the production of food crops like vegetables is preferable to animal products, as they contribute relatively less to CO2 emissions. Future research will focus on identifying the factors that drive higher CO2 emissions in animal farming and quantifying the impact of food and feed production on emissions while controlling for other variables.
+
+
+
+
+
+
+
+
