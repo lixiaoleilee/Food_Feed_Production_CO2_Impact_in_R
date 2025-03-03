@@ -1,7 +1,7 @@
 ---
 title: "Visualizing Global Food and Feed Production and Their CO₂ Emissions Impact"
 author: "Xiaolei Li"
-date: "Fall 2023"
+date: "Stat_Computing Fall_2023"
 output:
   html_document:
     toc: yes
